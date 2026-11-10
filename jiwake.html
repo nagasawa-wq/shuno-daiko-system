@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>仕訳変換</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root {
+  --bg:#f0ede8; --surface:#fff; --surface2:#f7f5f2; --border:#ddd9d2;
+  --accent:#a06818; --accent-l:#f5e8cf; --fg:#1a1714; --muted:#7a7268;
+  --ok:#1c7a4a; --ok-bg:#e4f5ec; --ng:#aa2020; --ng-bg:#fce8e8;
+  --r:6px; --mono:'IBM Plex Mono','Courier New',monospace;
+  --sans:'Noto Sans JP',system-ui,sans-serif; --orange:#d97706;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#10100f;--surface:#1a1a1f;--surface2:#222228;--border:#30303c;
+  --accent:#e8b840;--accent-l:#2a2008;--fg:#eeeef5;--muted:#8080a0;
+  --ok:#48d880;--ok-bg:#0d2e1a;--ng:#f07070;--ng-bg:#2e0d0d;color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#10100f;--surface:#1a1a1f;--surface2:#222228;--border:#30303c;
+  --accent:#e8b840;--accent-l:#2a2008;--fg:#eeeef5;--muted:#8080a0;
+  --ok:#48d880;--ok-bg:#0d2e1a;--ng:#f07070;--ng-bg:#2e0d0d;color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box;}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.6;padding:24px 16px;max-width:900px;margin:0 auto;}
+.app-header{display:flex;align-items:baseline;gap:12px;margin-bottom:24px;border-bottom:2px solid var(--accent);padding-bottom:12px;}
+.app-header h1{font-size:1.25rem;font-weight:700;margin:0;color:var(--accent);}
+.app-header p{margin:0;color:var(--muted);font-size:.82rem;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px;}
+.card-title{font-weight:700;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;}
+.sys-btns,.company-btns{display:flex;gap:10px;flex-wrap:wrap;}
+.sys-btn,.company-btn{display:inline-flex;align-items:center;border:2px solid var(--border);border-radius:var(--r);padding:9px 20px;font-size:13px;font-weight:700;font-family:inherit;background:var(--surface2);color:var(--fg);cursor:pointer;transition:border-color .15s,background .15s,color .15s;}
+.sys-btn:hover,.company-btn:hover{border-color:var(--accent);}
+.sys-btn.selected,.company-btn.selected{border-color:var(--accent);background:var(--accent);color:#fff;}
+.drop-zone{border:2px dashed var(--border);border-radius:var(--r);padding:22px;text-align:center;cursor:pointer;color:var(--muted);transition:border-color .15s,color .15s;}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);color:var(--accent);}
+.drop-zone input{display:none;}
+.file-list{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;}
+.file-chip{display:inline-flex;align-items:center;gap:6px;border-radius:4px;padding:4px 10px;font-size:12px;border:1px solid var(--border);background:var(--surface2);}
+.file-chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--muted);}
+.file-chip.ok .dot{background:var(--ok);}
+.file-chip.err .dot{background:var(--ng);}
+.btn-row{display:flex;gap:8px;align-items:center;}
+.btn-primary{padding:9px 22px;background:var(--accent);color:#fff;border:none;border-radius:var(--r);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-primary:hover{opacity:.88;}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+.btn-secondary{padding:9px 22px;background:var(--surface2);color:var(--fg);border:1px solid var(--border);border-radius:var(--r);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-secondary:hover{border-color:var(--accent);}
+.progress-wrap{margin-top:12px;}
+.progress{height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
+.progress-bar{height:100%;background:var(--accent);transition:width .2s;}
+.progress-msg{font-size:11px;color:var(--muted);margin-top:4px;}
+.error-item{color:var(--ng);font-size:.84rem;padding:2px 0;}
+#errorList:not(:empty){margin-bottom:12px;}
+.result-table{width:100%;border-collapse:collapse;font-size:.82rem;}
+.result-table th{text-align:left;padding:4px 8px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600;}
+.result-table td{padding:6px 8px;border-bottom:1px solid var(--border);}
+.mono{font-family:var(--mono);}
+.badge{display:inline-block;border-radius:99px;padding:1px 8px;font-size:.72rem;font-weight:700;}
+.badge-ok{background:var(--ok-bg);color:var(--ok);}
+.badge-ng{background:var(--ng-bg);color:var(--ng);}
+.badge-bill{background:var(--accent-l);color:var(--accent);}
+.status-ok{color:var(--ok);font-weight:700;}
+.status-ng{color:var(--ng);font-weight:700;}
+.csv-area{width:100%;height:180px;font-family:var(--mono);font-size:.72rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:10px;color:var(--fg);resize:vertical;}
+.copy-feedback{font-size:.82rem;color:var(--ok);}
+.upc-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px;}
+.result-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+.result-header h3{font-size:13px;font-weight:700;color:var(--accent);margin:0;}
+.result-meta{font-size:11px;color:var(--muted);}
+.preview{font-size:10px;font-family:var(--mono);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:8px;max-height:100px;overflow-y:auto;white-space:pre;margin-top:8px;}
+.site-rows{font-size:11px;margin-top:6px;}
+.site-row{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--border);}
+.site-row:last-child{border:none;}
+.site-name{font-weight:500;min-width:120px;}
+.site-amts{color:var(--muted);}
+.err-msg{background:var(--ng-bg);color:var(--ng);border-radius:4px;padding:8px 10px;font-size:11px;margin-bottom:6px;}
+.warn-msg{background:#fef3c7;color:var(--orange);border-radius:4px;padding:8px 10px;font-size:11px;margin-bottom:6px;}
+.btn-dl{padding:7px 16px;background:var(--ok);color:#fff;border:none;border-radius:var(--r);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;margin-left:auto;}
+.btn-dl:hover{opacity:.88;}
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <h1>⑥ 仕訳変換</h1>
+  <p>ROBOT PAYMENT / ユニヴァ・ペイキャスト / プライムバンテージ PDF → freee 振替伝票 CSV</p>
+</div>
+
+<div class="card">
+  <p class="card-title">1 — 決済代行を選択</p>
+  <div class="sys-btns" id="sysBtns">
+    <button class="sys-btn" data-sys="robopay">ロボペイ</button>
+    <button class="sys-btn" data-sys="univapay">ユニヴァペイ</button>
+    <button class="sys-btn" data-sys="sui">SUI</button>
+  </div>
+</div>
+
+<div class="card">
+  <p class="card-title">2 — freee会社を選択</p>
+  <div class="company-btns" id="companyBtns">
+    <button class="company-btn" data-company="sunny">Sunny Lab.</button>
+    <button class="company-btn" data-company="ichi">1.2.3</button>
+    <button class="company-btn" data-company="ride">RIDE PLAN</button>
+  </div>
+</div>
+
+<div class="card">
+  <p class="card-title">3 — PDFをアップロード</p>
+  <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <input type="file" id="fileInput" multiple accept=".pdf">
+    <div>クリックまたはドラッグ＆ドロップでPDFを選択</div>
+    <div style="font-size:11px;margin-top:4px">複数ファイル可</div>
+  </div>
+  <div class="file-list" id="fileList"></div>
+</div>
+
+<div class="card">
+  <p class="card-title">4 — 変換</p>
+  <div class="btn-row">
+    <button class="btn-primary" id="convertBtn" disabled>変換する</button>
+    <button class="btn-secondary" id="clearBtn">クリア</button>
+  </div>
+  <div class="progress-wrap" id="progressWrap" hidden>
+    <div class="progress"><div class="progress-bar" id="progressBar" style="width:0"></div></div>
+    <div class="progress-msg" id="progressMsg"></div>
+  </div>
+</div>
+
+<div id="errorList"></div>
+
+<!-- ロボペイ結果 -->
+<div class="card" id="rpResultsCard" hidden>
+  <div class="result-header">
+    <p class="card-title" style="margin:0">変換結果</p>
+    <div id="resultSummary"></div>
+    <button class="btn-dl" id="rpDlBtn" onclick="rpDownload()">CSVダウンロード</button>
+  </div>
+  <table class="result-table">
+    <thead><tr>
+      <th>伝票番号</th><th>サイト</th><th>日付</th>
+      <th style="text-align:right">借方合計</th><th style="text-align:right">貸方合計</th>
+      <th>バランス</th><th>区分</th>
+    </tr></thead>
+    <tbody id="resultBody"></tbody>
+  </table>
+</div>
+<div class="card" id="rpDebugCard" hidden>
+  <p class="card-title" style="margin-bottom:4px">デバッグ — PDF抽出テキスト</p>
+  <p style="font-size:.78rem;color:var(--muted);margin:0 0 12px">金額が0になる場合はこのテキストを開発者に共有してください。</p>
+  <div id="debugBody"></div>
+</div>
+
+<!-- ユニヴァペイ結果 -->
+<div id="upcErrorsArea"></div>
+<div id="upcResultsArea"></div>
+
+<!-- SUI結果 -->
+<div id="suiErrorsArea"></div>
+<div id="suiResultsArea"></div>
+<div class="card" id="suiDebugCard" hidden>
+  <p class="card-title" style="margin-bottom:4px">デバッグ — SUI PDF抽出テキスト</p>
+  <p style="font-size:.78rem;color:var(--muted);margin:0 0 12px">金額が取得できない場合はこのテキストを確認してください。</p>
+  <div id="suiDebugBody"></div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ═══ 共通 ════════════════════════════════════════════
+const CSV_HEADER = [
+  '[表題行]','日付','伝票番号','決算整理仕訳',
+  '借方勘定科目','借方科目コード','借方補助科目','借方取引先','借方取引先コード','借方部門',
+  '借方品目','借方メモタグ','借方セグメント1','借方セグメント2','借方セグメント3',
+  '借方金額','借方税区分','借方税額',
+  '貸方勘定科目','貸方科目コード','貸方補助科目','貸方取引先','貸方取引先コード','貸方部門',
+  '貸方品目','貸方メモタグ','貸方セグメント1','貸方セグメント2','貸方セグメント3',
+  '貸方金額','貸方税区分','貸方税額','摘要','借方備考','貸方備考',
+];
+function emptyRow() { return Array(35).fill(''); }
+function csvEsc(s) {
+  s = String(s ?? '');
+  return (s.includes(',') || s.includes('"') || s.includes('\n'))
+    ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function rowToCsv(r) { return r.map(csvEsc).join(','); }
+function lastDay(yr, mo) { return new Date(yr, mo, 0).getDate(); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function itemsToText(items) {
+  if (!items.length) return '';
+  const sorted = [...items].sort((a,b) => b.transform[5]-a.transform[5]);
+  const lines = [];
+  let group=[sorted[0]], baseY=sorted[0].transform[5];
+  for (let i=1;i<sorted.length;i++) {
+    const item=sorted[i];
+    if (Math.abs(item.transform[5]-baseY)<=8) { group.push(item); }
+    else {
+      const s=group.sort((a,b)=>a.transform[4]-b.transform[4]).map(x=>x.str.trim()).filter(Boolean).join(' ');
+      if (s) lines.push(s);
+      group=[item]; baseY=item.transform[5];
+    }
+  }
+  if (group.length) {
+    const s=group.sort((a,b)=>a.transform[4]-b.transform[4]).map(x=>x.str.trim()).filter(Boolean).join(' ');
+    if (s) lines.push(s);
+  }
+  return lines.join('\n');
+}
+
+// ═══ ロボペイ ════════════════════════════════════════
+const RP_COMPANY_MAP = { sunny:'sunny-lab', ride:'ride-plan', ichi:'123' };
+const RP_COMPANIES = {
+  'sunny-lab':{ label:'Sunny Lab.',  check:/Sunny\s*Lab/i },
+  'ride-plan': { label:'RIDE PLAN',  check:/RIDE\s*PLAN/i },
+  '123':       { label:'1.2.3',      check:/1[.．・]2[.．・]3/ },
+};
+const SITE_CONFIG = {
+  'ロト技研':          {no:'01',company:'sunny-lab',torihiki:'㈱INCLUDE',         kamoku:'預り金',bumon:'ｲ)ロト技研'},
+  'アーチスト':        {no:'04',company:'sunny-lab',torihiki:'トラストマネー㈱',  kamoku:'預り金',bumon:'ﾄ)アーチスト'},
+  'ハンターズ':        {no:'05',company:'sunny-lab',torihiki:'トラストマネー㈱',  kamoku:'預り金',bumon:'ﾄ)ハンターズ'},
+  'フルスロットル':    {no:'17',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'フルスロットル'},
+  'クラシック':        {no:'18',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'クラシック'},
+  'ミリオンアカデミー':{no:'19',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'ミリオンアカデミー'},
+  '馬魂':              {no:'20',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'馬魂'},
+  '豪運ロト':          {no:'21',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'豪運ロト'},
+  'ロトスティクス':    {no:'22',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'ロトスティクス'},
+  'ロト東京':          {no:'23',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'ロト東京'},
+  'しあわせ荘':        {no:'29',company:'sunny-lab',torihiki:'RIDE PLAN',        kamoku:'預り金',bumon:'ﾗ)しあわせ荘'},
+  'ハイランド':        {no:'30',company:'sunny-lab',torihiki:'ROBOT PAYMENT',    kamoku:'売上高',bumon:'ハイランド'},
+  'NEXTDOOR':          {no:'02',company:'123',      torihiki:'㈱INCLUDE',         kamoku:'預り金',bumon:'ｲ)ネクストドア'},
+  'NEXT DOOR':         {no:'02',company:'123',      torihiki:'㈱INCLUDE',         kamoku:'預り金',bumon:'ｲ)ネクストドア'},
+  'BIG BONUS':         {no:'03',company:'123',      torihiki:'㈱INCLUDE',         kamoku:'預り金',bumon:'ｲ)BIGBONUS'},
+  'リスタート':        {no:'10',company:'123',      torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'リスタート'},
+  'L.LEAGUE':          {no:'11',company:'123',      torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'L.LEAGUE'},
+  'ロト超新塾':        {no:'12',company:'123',      torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'ロト超新塾'},
+  'シークレットベース':{no:'13',company:'123',      torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'シークレットベース'},
+  'アムリッチ':        {no:'15',company:'123',      torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'アムリッチ'},
+  'モンスターズ':      {no:'16',company:'123',      torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'モンスターズ'},
+  'SHERPA':            {no:'24',company:'123',      torihiki:'RIDE PLAN',         kamoku:'預り金',bumon:'ﾗ)SHERPA'},
+  'ファミリア':        {no:'26',company:'123',      torihiki:'RIDE PLAN',         kamoku:'預り金',bumon:'ﾗ)ファミリア'},
+  '金の虎':            {no:'31',company:'123',      torihiki:'㈱LIMITLESS CREDIT',kamoku:'預り金',bumon:'ﾘ)金の虎'},
+  '金ノ虎':            {no:'31',company:'123',      torihiki:'㈱LIMITLESS CREDIT',kamoku:'預り金',bumon:'ﾘ)金の虎'},
+  'WINNERS':           {no:'06',company:'ride-plan',torihiki:'ﾄﾗｽﾄﾏﾈｰ㈱',       kamoku:'預り金',bumon:'ﾄ)WINNERS'},
+  'スカイゲート':      {no:'08',company:'ride-plan',torihiki:'㈱LIMITLESSCREDIT',kamoku:'預り金',bumon:'ﾘ)スカイゲート'},
+  'シャーロック':      {no:'09',company:'ride-plan',torihiki:'㈱LIMITLESSCREDIT',kamoku:'預り金',bumon:'ﾘ)シャーロック'},
+  '当せんファクトリー':{no:'25',company:'ride-plan',torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'当せんファクトリー'},
+  '当源郷':            {no:'27',company:'ride-plan',torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'当源郷'},
+  'くじしるべの会':    {no:'28',company:'ride-plan',torihiki:'ROBOT PAYMENT',     kamoku:'売上高',bumon:'くじしるべの会'},
+};
+const SITE_ORDER = [
+  'ロト技研','NEXTDOOR','BIG BONUS','アーチスト','ハンターズ','WINNERS',
+  'スカイゲート','シャーロック','リスタート','L.LEAGUE','ロト超新塾','シークレットベース',
+  'アムリッチ','モンスターズ','フルスロットル','クラシック','ミリオンアカデミー',
+  '馬魂','豪運ロト','ロトスティクス','ロト東京','SHERPA','当せんファクトリー',
+  'ファミリア','当源郷','くじしるべの会','しあわせ荘','ハイランド','金の虎',
+];
+
+function stemToSite(stem) {
+  for (const sfx of ['_銀振','_クレカ','_visamas']) {
+    if (stem.endsWith(sfx)) stem = stem.slice(0, -sfx.length);
+  }
+  return stem;
+}
+function parseAmount(s) {
+  s = String(s).trim();
+  const neg = /^[▲△−\-]/.test(s);
+  return (neg?-1:1) * parseInt(s.replace(/[^\d]/g,'') || '0', 10);
+}
+function normalizeText(s) {
+  return s.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+    .replace(/[．｡]/g,'.').replace(/[－−]/g,'-').replace(/，/g,',').replace(/　/g,' ');
+}
+async function rpExtractPages(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data:buf,cMapUrl:'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',cMapPacked:true}).promise;
+  const pages = [];
+  for (let p=1;p<=pdf.numPages;p++) {
+    const page = await pdf.getPage(p);
+    pages.push(normalizeText(itemsToText((await page.getTextContent()).items)));
+  }
+  return pages;
+}
+function findAmt(txt, pats, def=0) {
+  for (const pat of pats) { const m=txt.match(new RegExp(pat,'s')); if (m) return parseAmount(m[1]); }
+  return def;
+}
+const YA = String.raw`¥\s*([-]?[\d,]+)`;
+function parsePage1(txt) {
+  const furikomi = findAmt(txt,[String.raw`\(A\)[^¥\n]*`+YA,String.raw`お振込金額[^\n]*\n[^\n]*`+YA,String.raw`振込金額[^\n¥]*`+YA]);
+  let tsumitate=0;
+  { const re=/保証金[^\n]*請求金額\s*([-]?[\d,]+)/gs; let m; while((m=re.exec(txt))!==null) tsumitate+=Math.abs(parseAmount(m[1])); }
+  let henkan=0,henkanMo=null;
+  { const re=/(\d{1,2})月精算分保証金[^\n]*返金金額\s*([\d,]+)/gs; let m;
+    while((m=re.exec(txt))!==null){henkan+=parseAmount(m[2]);if(henkanMo===null)henkanMo=+m[1];}
+    if(!henkan){const re2=/保証金[^\n]*返金金額\s*([\d,]+)/gs;let m2;while((m2=re2.exec(txt))!==null)henkan+=parseAmount(m2[1]);} }
+  const furikoT = findAmt(txt,[String.raw`振込事務手数料[^¥\n]*`+YA,String.raw`振込手数料[^¥\n]*`+YA,String.raw`10%対象\s+[\d,]+\s+[\d,]+\s+([\d,]+)`]);
+  return {furikomi,tsumitate,henkan,henkanMo,furikoT};
+}
+function parseDetailPage(txt) {
+  const uriage = findAmt(txt,[String.raw`売上金額\s*\(A\)\s*([\d,]+)`,String.raw`合計\s+[\d,]+\s+([\d,]+)\s+[\d,]+\s+-`,String.raw`売上代金合計[^\n¥]*`+YA,String.raw`売上代金合計\s*([-▲△]?\s*[\d,]+)\s*円`]);
+  const tesIncl = findAmt(txt,[String.raw`10%対象\s+[\d,]+\s+[\d,]+\s+([\d,]+)`,String.raw`取扱手数料[（(]税込[）)][^\n¥]*`+YA,String.raw`手数料合計[^\n¥]*`+YA,String.raw`取扱手数料[（(]税込[）)]\s*([-▲△]?\s*[\d,]+)\s*円`]);
+  const tesTax = findAmt(txt,[String.raw`消費税額合計\s*\([A-Z]\)\s*-\s*([\d,]+)`,String.raw`合計\s+-\s+([\d,]+)\s+-`,String.raw`消費税[（(]10%[）)][^\n¥]*`+YA,String.raw`消費税\s*([-▲△]?\s*[\d,]+)\s*円`]);
+  const m = txt.match(/(\d{4})年(\d{2})月(\d{2})日\s*[～~]\s*(\d{4})年(\d{2})月(\d{2})日/);
+  return {uriage,tesIncl,tesTax,periodEnd:m?[+m[4],+m[5],+m[6]]:null,type:/売上金額\s*\(A\)/.test(txt)?'銀振':'クレカ'};
+}
+let _debugTexts=[];
+async function rpParsePdf(file) {
+  const pages = await rpExtractPages(file);
+  if (!pages.length) throw new Error('テキストを取得できませんでした');
+  _debugTexts.push({filename:file.name,pages});
+  if (selectedCompany) {
+    const co = RP_COMPANIES[RP_COMPANY_MAP[selectedCompany]];
+    if (!co.check.test(pages[0])) throw new Error(`1ページ目に「株式会社${co.label}」宛の記載が見つかりません`);
+  }
+  const p1 = parsePage1(pages[0]);
+  const sections=[]; let periodEnd=null;
+  for (const txt of pages.slice(1)) {
+    const d=parseDetailPage(txt);
+    sections.push({uriage:d.uriage,tesIncl:d.tesIncl,tesTax:d.tesTax,type:d.type});
+    if (!periodEnd&&d.periodEnd) periodEnd=d.periodEnd;
+  }
+  if (!periodEnd) throw new Error('売上代金対象期間が見つかりません');
+  return {...p1,sections,periodEnd};
+}
+function rpDetailRow({dateStr='',drKamoku='',drTorihiki='',drBumon='',drAmt=0,drTax='',drTaxAmt=0,drBiko='',crKamoku='',crTorihiki='',crBumon='',crAmt=0,crTax='',crTaxAmt=0,crBiko=''}={}) {
+  const r=emptyRow(); r[0]='[明細行]'; if(dateStr)r[1]=dateStr;
+  if(drKamoku){r[4]=drKamoku;r[7]=drTorihiki;r[9]=drBumon;if(drAmt)r[15]=String(drAmt);r[16]=drTax;if(drTaxAmt)r[17]=String(drTaxAmt);}
+  if(crKamoku){r[18]=crKamoku;r[21]=crTorihiki;r[23]=crBumon;if(crAmt)r[29]=String(crAmt);r[30]=crTax;if(crTaxAmt)r[31]=String(crTaxAmt);}
+  const biko=crBiko||drBiko; if(biko)r[32]=biko; if(drBiko)r[33]=drBiko; if(crBiko)r[34]=crBiko;
+  return r;
+}
+function rpBuildVoucher(siteName,data,dateStr,vno) {
+  const cfg=SITE_CONFIG[siteName];
+  const {torihiki:tk,kamoku:km,bumon:bm}=cfg;
+  const {furikomi,tsumitate,henkan,henkanMo,furikoT,sections,periodEnd}=data;
+  const billing=furikomi<0, mo=periodEnd[1], pfx=`${mo}月${siteName}　`;
+  const rows=[];
+  const add=({drKamoku='',drTorihiki='',drBumon='',drAmt=0,drTax='',drTaxAmt=0,crKamoku='',crTorihiki='',crBumon='',crAmt=0,crTax='',crTaxAmt=0,summary=''}={})=>{
+    if(!drAmt&&!crAmt)return;
+    const row=rpDetailRow({dateStr,drKamoku,drTorihiki,drBumon,drAmt,drTax,drTaxAmt,drBiko:drAmt?summary:'',crKamoku,crTorihiki,crBumon,crAmt,crTax,crTaxAmt,crBiko:crAmt?summary:''});
+    row[2]=vno; rows.push(row);
+  };
+  if(!billing&&furikomi!==0) add({drKamoku:'売掛金',drTorihiki:'ROBOT PAYMENT',drAmt:furikomi,drTax:'対象外',summary:pfx+'売上'});
+  for(const s of sections) if(s.tesIncl>0) add({drKamoku:'支払手数料',drTorihiki:'ROBOT PAYMENT',drAmt:s.tesIncl,drTax:'課対仕入10%',drTaxAmt:s.tesTax,summary:pfx+(s.type==='銀振'?'銀行手数料':'クレカ手数料')});
+  if(tsumitate>0) add({drKamoku:'預け金',drTorihiki:'ROBOT PAYMENT',drAmt:tsumitate,drTax:'対象外',summary:`${mo}月売上分保証金`});
+  if(!billing&&furikoT>0) add({drKamoku:'支払手数料',drTorihiki:'ROBOT PAYMENT',drAmt:furikoT,drTax:'課対仕入10%',drTaxAmt:Math.floor(furikoT/11),summary:pfx+'振込手数料'});
+  for(const s of sections) if(s.uriage>0){const taxable=km==='売上高';add({crKamoku:km,crTorihiki:tk,crBumon:bm,crAmt:s.uriage,crTax:taxable?'課税売上10%':'対象外',crTaxAmt:taxable?Math.floor(s.uriage/11):0,summary:pfx+(s.type==='銀振'?'銀行売上':'クレカ売上')});}
+  if(henkan>0) add({crKamoku:'預け金',crTorihiki:'ROBOT PAYMENT',crBumon:bm,crAmt:henkan,crTax:'対象外',summary:`${henkanMo??mo}月精算分保証金`});
+  if(billing) add({crKamoku:'未払費用',crTorihiki:'ROBOT PAYMENT',crBumon:bm,crAmt:Math.abs(furikomi),crTax:'対象外',summary:pfx+'マイナス分'});
+  return rows;
+}
+function verifyBalance(rows) {
+  let dr=0,cr=0;
+  for(const r of rows){if(r[0]==='[明細行]'){dr+=r[15]?parseInt(r[15]):0;cr+=r[29]?parseInt(r[29]):0;}}
+  return{dr,cr,ok:dr===cr};
+}
+let _csvText='', _dlName='仕訳インポート.csv';
+async function rpProcessFiles(files) {
+  _debugTexts=[];
+  setProgress(0,'PDFを読み込み中...');
+  showErrors([]);
+  const groups=new Map(), errors=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    const siteName=stemToSite(f.name.replace(/\.pdf$/i,''));
+    const cfg=SITE_CONFIG[siteName];
+    if(!cfg){errors.push(`スキップ (設定なし): ${f.name}`);continue;}
+    const rpKey=RP_COMPANY_MAP[selectedCompany];
+    if(rpKey&&cfg.company!==rpKey){errors.push(`スキップ (会社不一致): ${f.name} → ${RP_COMPANIES[cfg.company]?.label??cfg.company} のサイトです`);continue;}
+    setProgress((i/files.length)*60,`${f.name} を解析中...`);
+    try{
+      const data=await rpParsePdf(f);
+      const[yr,mo]=data.periodEnd, key=`${siteName}|${yr}|${mo}`;
+      if(groups.has(key)){const ex=groups.get(key);ex.furikomi+=data.furikomi;ex.tsumitate+=data.tsumitate;ex.henkan+=data.henkan;ex.furikoT+=data.furikoT;ex.sections.push(...data.sections);if(ex.henkanMo===null&&data.henkanMo!==null)ex.henkanMo=data.henkanMo;}
+      else groups.set(key,{...data,sections:[...data.sections]});
+    }catch(e){errors.push(`${f.name}: ${e.message}`);}
+  }
+  showErrors(errors);
+  const sortKey=key=>{const[site,yr,mo]=key.split('|');const idx=SITE_ORDER.indexOf(site);return(+yr)*10000+(+mo)*100+(idx<0?99:idx);};
+  const sortedKeys=[...groups.keys()].sort((a,b)=>sortKey(a)-sortKey(b));
+  const counters={},assignments=[];
+  for(const key of sortedKeys){
+    const[site,yrStr,moStr]=key.split('|');const yr=+yrStr,mo=+moStr;
+    const ym=`${yr}-${mo}`;counters[ym]=(counters[ym]||0)+1;
+    const dd=lastDay(yr,mo);
+    const dateStr=`${yr}/${String(mo).padStart(2,'0')}/${String(dd).padStart(2,'0')}`;
+    const vno=`${yr}${String(mo).padStart(2,'0')}${SITE_CONFIG[site]?.no??String(counters[ym]).padStart(3,'0')}`;
+    assignments.push({site,data:groups.get(key),dateStr,vno});
+  }
+  setProgress(70,'CSV生成中...');
+  const allRows=[CSV_HEADER],results=[];
+  for(const{site,data,dateStr,vno}of assignments){
+    const rows=rpBuildVoucher(site,data,dateStr,vno);
+    const bal=verifyBalance(rows);
+    results.push({site,vno,dateStr,...bal,billing:data.furikomi<0});
+    allRows.push(...rows);
+  }
+  setProgress(100,'完了');
+  _csvText='﻿'+allRows.map(rowToCsv).join('\r\n');
+  rpRenderResults(results);
+  rpRenderCsv(assignments);
+  rpRenderDebug();
+  document.getElementById('progressWrap').hidden=true;
+}
+function rpRenderResults(results){
+  document.getElementById('rpResultsCard').hidden=false;
+  const allOk=results.every(r=>r.ok);
+  document.getElementById('resultSummary').innerHTML=`<span class="${allOk?'status-ok':'status-ng'}">${allOk?'✓ 全':'⚠ 一部'}${results.length}伝票 — 借貸バランス${allOk?'OK':'不一致あり'}</span>`;
+  document.getElementById('resultBody').innerHTML=results.map(r=>`<tr><td class="mono">${r.vno}</td><td>${escHtml(r.site)}</td><td class="mono">${r.dateStr}</td><td class="mono" style="text-align:right">${r.dr.toLocaleString()}</td><td class="mono" style="text-align:right">${r.cr.toLocaleString()}</td><td><span class="badge ${r.ok?'badge-ok':'badge-ng'}">${r.ok?'✓':'×'}</span></td><td>${r.billing?'<span class="badge badge-bill">ビリング</span>':''}</td></tr>`).join('');
+}
+function rpRenderCsv(assignments){
+  if(assignments.length){
+    const[yr,mo]=assignments[0].dateStr.split('/');
+    const sites=[...new Set(assignments.map(a=>a.site))];
+    _dlName=sites.length===1?`仕訳インポート_${yr}${mo}_${sites[0]}.csv`:`仕訳インポート_${yr}${mo}_${sites[0]}他${sites.length-1}件.csv`;
+  }
+}
+function rpDownload(){
+  if(!_csvText)return;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([_csvText],{type:'text/csv'}));
+  a.download=_dlName||'freee.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+}
+function rpRenderDebug(){
+  document.getElementById('rpDebugCard').hidden=false;
+  document.getElementById('debugBody').innerHTML=_debugTexts.map(({filename,pages})=>`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:700;padding:6px 0">${escHtml(filename)}（${pages.length}ページ）</summary>${pages.map((txt,i)=>`<div style="margin-top:8px"><div style="font-size:.75rem;color:var(--muted);margin-bottom:4px">ページ ${i+1}</div><textarea readonly style="width:100%;height:160px;font-family:var(--mono);font-size:.7rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:8px;color:var(--fg);resize:vertical">${escHtml(txt)}</textarea></div>`).join('')}</details>`).join('');
+}
+
+// ═══ ユニヴァペイ ════════════════════════════════════
+const UPC_LABELS = { sunny:'株式会社Sunny Lab.', ride:'株式会社RIDE PLAN', ichi:'株式会社1.2.3' };
+const UPC_SITES = {
+  'クラシック':        {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'クラシック'},
+  'フルスロットル':    {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'フルスロットル'},
+  'ミリオンアカデミー':{company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'ミリオンアカデミー'},
+  '馬魂':             {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'馬魂'},
+  '豪運ロト':          {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'豪運ロト'},
+  'ロトスティクス':    {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'ロトスティクス'},
+  'ロト東京':          {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'ロト東京'},
+  'ロトTOKYO':        {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'ロト東京'},
+  'ハイランド':        {company:'sunny',kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'ハイランド'},
+  '当せんファクトリー':{company:'ride', kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'当せんファクトリー'},
+  '当源郷':            {company:'ride', kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'当源郷'},
+  'シークレットベース':{company:'ichi', kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'シークレットベース'},
+  'ホットライン':      {company:'ichi', kamoku:'売上高',torihiki:'ユニヴァペイ',bumon:'ホットライン'},
+  'ファミリア':        {company:'ichi', kamoku:'預り金',torihiki:'RIDE PLAN',  bumon:'ﾗ)ファミリア'},
+};
+function upcParseAmt(s){return parseInt(String(s||'').replace(/[^0-9]/g,'')||'0',10);}
+function upcDetectCompany(text){
+  const top=text.split('\n').slice(0,4).join(' ');
+  if(/Sunny\s*Lab/i.test(top))return'sunny';
+  if(/RIDE\s*PLAN/i.test(top))return'ride';
+  if(/1\.2\.3/.test(top))return'ichi';
+  return null;
+}
+function upcDetailRow({dateStr='',vno='',drKamoku='',drTorihiki='',drBumon='',drAmt=0,drTax='',drTaxAmt=0,crKamoku='',crTorihiki='',crBumon='',crAmt=0,crTax='',crTaxAmt=0,biko=''}) {
+  const r=emptyRow();r[0]='[明細行]';if(dateStr)r[1]=dateStr;if(vno)r[2]=vno;
+  if(drKamoku){r[4]=drKamoku;r[7]=drTorihiki;r[9]=drBumon;if(drAmt)r[15]=String(drAmt);r[16]=drTax;if(drTaxAmt)r[17]=String(drTaxAmt);}
+  if(crKamoku){r[18]=crKamoku;r[21]=crTorihiki;r[23]=crBumon;if(crAmt)r[29]=String(crAmt);r[30]=crTax;if(crTaxAmt)r[31]=String(crTaxAmt);}
+  if(biko){r[32]=biko;if(drKamoku)r[33]=biko;if(crKamoku)r[34]=biko;}
+  return r;
+}
+async function upcParsePdf(file){
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf,cMapUrl:'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',cMapPacked:true}).promise;
+  const pages=[];
+  for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);pages.push(itemsToText((await page.getTextContent()).items));}
+  const txt=pages.join('\n');
+  const company=upcDetectCompany(txt);
+  const mSite=txt.match(/加盟店名\s*[：:][^\n]*-\s*([^\n\r]+)/);
+  const siteName=mSite?mSite[1].trim():null;
+  const mP=txt.match(/(\d{4})年(\d{2})月\d{2}日\s*[〜～~-]\s*(\d{4})年(\d{2})月(\d{2})日/);
+  const period=mP?{year:+mP[3],month:+mP[4],day:+mP[5]}:null;
+  const mA=txt.match(/合計\s*[\(\（]A[\)\）]\s*¥\s*([\d,]+)/);
+  const A=mA?upcParseAmt(mA[1]):0;
+  const mC=txt.match(/手数料\s*[\(\（]C[\)\）][^\n]*?¥\s*([\d,]+)[^\n]*?¥\s*([\d,]+)/);
+  const C=mC?upcParseAmt(mC[1]):0, Ctax=mC?upcParseAmt(mC[2]):0;
+  const mD=txt.match(/前回繰越金額\s*[\(\（]D[\)\）]\s*¥\s*([\d,]+)/);
+  const D=mD?upcParseAmt(mD[1]):0;
+  return{company,siteName,period,A,C,Ctax,D,fileName:file.name};
+}
+function upcBuildVoucher(companyKey,sites){
+  const{year,month}=sites[0].period;
+  const dd=lastDay(year,month);
+  const dateStr=`${year}/${String(month).padStart(2,'0')}/${String(dd).padStart(2,'0')}`;
+  const vno=`${year}${String(month).padStart(2,'0')}UPC`, mo=month;
+  const sumA=sites.reduce((s,x)=>s+x.A,0), sumC=sites.reduce((s,x)=>s+x.C,0), diff=sumA-sumC;
+  const rows=[];
+  if(diff>0) rows.push(upcDetailRow({dateStr,vno,drKamoku:'売掛金',drTorihiki:'ユニヴァペイ',drAmt:diff,drTax:'対象外',biko:`${mo}月分売上`}));
+  for(const s of sites){if(!s.C)continue;rows.push(upcDetailRow({dateStr,vno,drKamoku:'支払手数料',drTorihiki:'ユニヴァペイ',drBumon:s.cfg.bumon,drAmt:s.C,drTax:'課対仕入10%',drTaxAmt:s.Ctax,biko:`${mo}月${s.siteName} 手数料`}));}
+  for(const s of sites){if(!s.D)continue;rows.push(upcDetailRow({dateStr,vno,drKamoku:'未払費用',drTorihiki:'ユニヴァペイ',drBumon:s.cfg.bumon,drAmt:s.D,drTax:'対象外',biko:`${mo}月${s.siteName} 前回繰越`}));}
+  for(const s of sites){if(!s.A)continue;const taxable=s.cfg.kamoku==='売上高';rows.push(upcDetailRow({dateStr,vno,crKamoku:s.cfg.kamoku,crTorihiki:s.cfg.torihiki,crBumon:s.cfg.bumon,crAmt:s.A,crTax:taxable?'課税売上10%':'対象外',crTaxAmt:taxable?Math.floor(s.A/11):0,biko:`${mo}月${s.siteName} 売上`}));}
+  if(diff<0) rows.push(upcDetailRow({dateStr,vno,crKamoku:'未払費用',crTorihiki:'ユニヴァペイ',crAmt:Math.abs(diff),crTax:'対象外',biko:`${mo}月マイナス分`}));
+  let drSum=0,crSum=0;
+  for(const r of rows){if(r[15])drSum+=parseInt(r[15]);if(r[29])crSum+=parseInt(r[29]);}
+  return{rows,dateStr,vno,drSum,crSum,siteCount:sites.length};
+}
+window._upcCsvStore={};
+async function upcProcessFiles(files){
+  setProgress(0,'PDF読み込み中...');
+  document.getElementById('upcResultsArea').innerHTML='';
+  document.getElementById('upcErrorsArea').innerHTML='';
+  window._upcCsvStore={};
+  const parsed=[],errors=[],unrecognized=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    setProgress(Math.round((i/files.length)*70),`${f.name} を解析中...`);
+    try{
+      const data=await upcParsePdf(f);
+      if(!data.company){errors.push(`${f.name}: 会社名を特定できませんでした`);continue;}
+      if(!data.siteName){errors.push(`${f.name}: 加盟店名を取得できませんでした`);continue;}
+      if(!data.period){errors.push(`${f.name}: 集計期間を取得できませんでした`);continue;}
+      if(data.company!==selectedCompany){errors.push(`スキップ (会社不一致): ${f.name} → ${UPC_LABELS[data.company]??data.company} のPDFです`);continue;}
+      const cfg=UPC_SITES[data.siteName];
+      if(!cfg){unrecognized.push(`${f.name}: 未登録サイト「${data.siteName}」`);continue;}
+      parsed.push({...data,cfg});
+    }catch(e){errors.push(`${f.name}: ${e.message}`);}
+  }
+  setProgress(80,'CSV生成中...');
+  const results=[];
+  if(parsed.length){
+    const voucher=upcBuildVoucher(selectedCompany,parsed);
+    const csv='﻿'+[CSV_HEADER,...voucher.rows].map(rowToCsv).join('\r\n');
+    window._upcCsvStore[selectedCompany]={csv,...voucher,sites:parsed};
+    results.push({co:selectedCompany,...voucher,sites:parsed});
+  }
+  setProgress(100,'完了');
+  document.getElementById('progressWrap').hidden=true;
+  document.getElementById('upcErrorsArea').innerHTML=[...unrecognized.map(w=>`<div class="warn-msg">⚠ ${w}</div>`),...errors.map(e=>`<div class="err-msg">✕ ${e}</div>`)].join('');
+  if(!results.length)return;
+  document.getElementById('upcResultsArea').innerHTML=results.map(r=>{
+    const bal=r.drSum===r.crSum;
+    const badge=bal?`<span class="badge badge-ok">貸借一致</span>`:`<span class="badge badge-ng">差額 ${Math.abs(r.drSum-r.crSum).toLocaleString()}円</span>`;
+    const siteRows=r.sites.map(s=>`<div class="site-row"><span class="site-name">${s.siteName}</span><span class="site-amts">A:¥${s.A.toLocaleString()} C:¥${s.C.toLocaleString()}${s.D?` D:¥${s.D.toLocaleString()}`:''}</span><span class="badge ${s.cfg.kamoku==='売上高'?'badge-ok':''}" style="${s.cfg.kamoku==='預り金'?'background:#fef3c7;color:var(--orange)':''}">${s.cfg.kamoku}</span></div>`).join('');
+    const preview=window._upcCsvStore[r.co].csv.split('\r\n').slice(0,4).join('\n');
+    return`<div class="upc-card"><div class="result-header"><h3>${UPC_LABELS[r.co]}</h3>${badge}<span class="result-meta">${r.siteCount}サイト ／ ${r.dateStr}</span><button class="btn-dl" onclick="upcDownload('${r.co}')">CSVダウンロード</button></div><div class="site-rows">${siteRows}</div><div class="preview">${preview}</div></div>`;
+  }).join('');
+}
+function upcDownload(co){
+  const{csv}=window._upcCsvStore[co];
+  const label=UPC_LABELS[co].replace('株式会社','');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`ユニヴァペイ_${label}_${new Date().toISOString().slice(0,7)}.csv`;
+  a.click();
+}
+
+// ═══ SUI（プライムバンテージ） ════════════════════════════════
+const SUI_TK = 'プライムバンテージ';
+const SUI_LABELS = { sunny:'株式会社Sunny Lab.', ride:'株式会社RIDE PLAN', ichi:'株式会社1.2.3' };
+const SUI_SITE_MAP = {
+  '80790801':{siteName:'アーチスト',        company:'sunny',kamoku:'預り金',torihiki:'トラストマネー㈱',    bumon:'ﾄ)アーチスト'},
+  '80790807':{siteName:'フルスロットル',     company:'sunny',kamoku:'売上高',torihiki:SUI_TK,              bumon:'フルスロットル'},
+  '80790808':{siteName:'クラシック',         company:'sunny',kamoku:'売上高',torihiki:SUI_TK,              bumon:'クラシック'},
+  '80790809':{siteName:'豪運ロト',           company:'sunny',kamoku:'売上高',torihiki:SUI_TK,              bumon:'豪運ロト'},
+  '80790810':{siteName:'ロトスティクス',     company:'sunny',kamoku:'売上高',torihiki:SUI_TK,              bumon:'ロトスティクス'},
+  '80790811':{siteName:'ロト技研',           company:'sunny',kamoku:'預り金',torihiki:'㈱INCLUDE',          bumon:'ｲ)ロト技研'},
+  '80790812':{siteName:'ミリオンアカデミー', company:'sunny',kamoku:'売上高',torihiki:SUI_TK,              bumon:'ミリオンアカデミー'},
+  '80790813':{siteName:'ロト東京',           company:'sunny',kamoku:'売上高',torihiki:SUI_TK,              bumon:'ロト東京'},
+  '80790814':{siteName:'しあわせ荘',         company:'sunny',kamoku:'預り金',torihiki:'RIDE PLAN',           bumon:'ﾗ)しあわせ荘'},
+  '76797601':{siteName:'当せんファクトリー', company:'ride', kamoku:'売上高',torihiki:SUI_TK,              bumon:'当せんファクトリー'},
+  '76797602':{siteName:'当源郷',             company:'ride', kamoku:'売上高',torihiki:SUI_TK,              bumon:'当源郷'},
+  '76797603':{siteName:'WINNERS',            company:'ride', kamoku:'預り金',torihiki:'ﾄﾗｽﾄﾏﾈｰ㈱',         bumon:'ﾄ)WINNERS'},
+  '76797604':{siteName:'スカイゲート',       company:'ride', kamoku:'預り金',torihiki:'㈱LIMITLESSCREDIT', bumon:'ﾘ)スカイゲート'},
+  '76797605':{siteName:'くじしるべの会',     company:'ride', kamoku:'売上高',torihiki:SUI_TK,              bumon:'くじしるべの会'},
+  '76797606':{siteName:'シャーロック',       company:'ride', kamoku:'預り金',torihiki:'㈱LIMITLESSCREDIT', bumon:'ﾘ)シャーロック'},
+  '76208801':{siteName:'リスタート',         company:'ichi', kamoku:'売上高',torihiki:SUI_TK,              bumon:'リスタート'},
+  '76208804':{siteName:'Lリーグ',            company:'ichi', kamoku:'売上高',torihiki:SUI_TK,              bumon:'L.LEAGUE'},
+  '76208805':{siteName:'ロト超新塾',         company:'ichi', kamoku:'売上高',torihiki:SUI_TK,              bumon:'ロト超新塾'},
+  '76208806':{siteName:'NEXTDOOR',           company:'ichi', kamoku:'預り金',torihiki:'㈱INCLUDE',          bumon:'ｲ)ネクストドア'},
+  '76208807':{siteName:'金の虎',             company:'ichi', kamoku:'預り金',torihiki:'㈱LIMITLESS CREDIT',bumon:'ﾘ)金の虎'},
+  '76208809':{siteName:'ホットライン',       company:'ichi', kamoku:'売上高',torihiki:SUI_TK,              bumon:'ホットライン'},
+  '76208810':{siteName:'シークレットベース', company:'ichi', kamoku:'売上高',torihiki:SUI_TK,              bumon:'シークレットベース'},
+  '76208811':{siteName:'ファミリア',         company:'ichi', kamoku:'預り金',torihiki:'RIDE PLAN',          bumon:'ﾗ)ファミリア'},
+  '76208812':{siteName:'アムリッチ',         company:'ichi', kamoku:'売上高',torihiki:SUI_TK,              bumon:'アムリッチ'},
+  '76208813':{siteName:'モンスターズ',       company:'ichi', kamoku:'売上高',torihiki:SUI_TK,              bumon:'モンスターズ'},
+};
+function suiFindAmt(text, keyPattern) {
+  const re = new RegExp(keyPattern + '[^\n]*');
+  const m = text.match(re);
+  if (!m) return 0;
+  const nums = [...m[0].matchAll(/\d{1,3}(?:,\d{3})*/g)].map(x => parseInt(x[0].replace(/,/g,'')));
+  return nums.length ? Math.max(...nums) : 0;
+}
+let _suiDebugTexts = [];
+async function suiParsePdf(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data:buf,cMapUrl:'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',cMapPacked:true}).promise;
+  const pages = [];
+  for (let p=1; p<=pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    pages.push(itemsToText((await page.getTextContent()).items));
+  }
+  let text = pages.join('\n');
+  _suiDebugTexts.push({fileName:file.name, pages});
+  text = text.replace(/(?<!\d)7 (\d{7})/g, '7$1');
+  // 康熙部首（⽀→支、⾦→金、⼿→手、⽉→月 等）を標準漢字に変換
+  text = text.normalize('NFKC');
+  // PDF.js が日本語1文字ずつスペース区切りで抽出する場合の正規化（2パスで奇数長にも対応）
+  text = text.replace(/([^\x00-\x7F]) ([^\x00-\x7F])/g, '$1$2');
+  text = text.replace(/([^\x00-\x7F]) ([^\x00-\x7F])/g, '$1$2');
+  let company = null;
+  const top = text.split('\n').slice(0,8).join(' ');
+  if (/Sunny\s*Lab/i.test(top)) company = 'sunny';
+  else if (/RIDE\s*PLAN/i.test(top)) company = 'ride';
+  else if (/1\.2\.3/.test(top)) company = 'ichi';
+  let year=null, month=null;
+  let mP = text.match(/決\s*済\s*期\s*間[^\d]{0,8}(\d{4})-(\d{2})-\d{2}[^\d]{0,8}(\d{4})-(\d{2})-\d{2}/);
+  if (mP) { year=+mP[3]; month=+mP[4]; }
+  if (!year) {
+    mP = text.match(/(\d{4})\/(\d{2})\/\d{2}\s*[～~]\s*(\d{4})\/(\d{2})\/\d{2}/);
+    if (mP) { year=+mP[3]; month=+mP[4]; }
+  }
+  if (!year) { mP=text.match(/(\d{4})-(\d{2})-\d{2}/); if(mP){year=+mP[1];month=+mP[2];} }
+  const totals={}, allTotals={};
+  const txRe=/(\d{8})\s*[0-9X*]{16}\s*\d{13}\s*\d{14}\s*売\s*上\s*確\s*定\s*([\d,]+)/g;
+  let m;
+  while((m=txRe.exec(text))!==null){
+    const id=m[1],amt=parseInt(m[2].replace(/,/g,''));
+    allTotals[id]=(allTotals[id]||0)+amt;
+    if(SUI_SITE_MAP[id])totals[id]=(totals[id]||0)+amt;
+  }
+  if(!Object.keys(totals).length){
+    for(const suiId of Object.keys(SUI_SITE_MAP)){
+      const idx=text.indexOf(suiId); if(idx<0)continue;
+      const snip=text.substring(idx,idx+200);
+      const amts=[...snip.matchAll(/\d{1,3}(?:,\d{3})+/g)].map(x=>parseInt(x[0].replace(/,/g,'')));
+      if(amts.length){const best=Math.max(...amts);if(best>1000)totals[suiId]=best;}
+    }
+  }
+  const tesryo       = suiFindAmt(text,'決済手数料');
+  const getsuki      = suiFindAmt(text,'月額基本料');
+  const ninshory     = suiFindAmt(text,'認証料');
+  const okuri        = suiFindAmt(text,'送金手数料');
+  const shokihi      = suiFindAmt(text,'初期費用');
+  const depositAmt   = suiFindAmt(text,'Deposit(?!返金)');
+  const kurikoshi    = suiFindAmt(text,'繰越額');
+  // 集計行（決済額 控除額 繰越額 Deposit返金 差引お支払額）から sashiHirai と depositHenkan を同時に取得
+  let sashiHirai = 0, depositHenkan = 0;
+  {
+    const mSh = text.match(/差\s*引\s*お\s*支\s*払\s*額([^\n]*)/);
+    if (mSh) {
+      const numsOnLine = [...mSh[1].matchAll(/\d{1,3}(?:,\d{3})*/g)].map(x=>parseInt(x[0].replace(/,/g,'')));
+      if (numsOnLine.length) {
+        sashiHirai = numsOnLine[numsOnLine.length-1];
+        if (numsOnLine.length >= 2) depositHenkan = numsOnLine[numsOnLine.length-2];
+      } else {
+        const mShNext = text.match(/差\s*引\s*お\s*支\s*払\s*額[^\n]*\n([^\n]+)/);
+        if (mShNext) {
+          const numsNextLine = [...mShNext[1].matchAll(/\d{1,3}(?:,\d{3})*/g)].map(x=>parseInt(x[0].replace(/,/g,'')));
+          if (numsNextLine.length) {
+            sashiHirai = numsNextLine[numsNextLine.length-1];
+            if (numsNextLine.length >= 2) depositHenkan = numsNextLine[numsNextLine.length-2];
+          }
+        }
+      }
+    }
+  }
+  return{company,year,month,totals,allTotals,tesryo,getsuki,ninshory,okuri,shokihi,depositAmt,depositHenkan,kurikoshi,sashiHirai,fileName:file.name};
+}
+function suiBuildVoucher(data){
+  const{year,month,totals,allTotals,tesryo,getsuki,ninshory,okuri,shokihi,depositAmt,depositHenkan,kurikoshi,sashiHirai}=data;
+  const dd=lastDay(year,month);
+  const dateStr=`${year}/${String(month).padStart(2,'0')}/${String(dd).padStart(2,'0')}`;
+  const vno=`${year}${String(month).padStart(2,'0')}SUI`;
+  const rows=[];
+  const add=(opts)=>{const r=rpDetailRow({dateStr,...opts});r[2]=vno;rows.push(r);};
+  if(sashiHirai>0) add({drKamoku:'売掛金',    drTorihiki:SUI_TK,drAmt:sashiHirai,drTax:'対象外',                                        drBiko:`${month}月分収納代行料`});
+  if(tesryo>0)     add({drKamoku:'支払手数料',drTorihiki:SUI_TK,drAmt:tesryo,    drTax:'課対仕入10%',drTaxAmt:Math.floor(tesryo/11),  drBiko:`${month}月分決済手数料`});
+  const sonota=getsuki+ninshory+okuri+shokihi;
+  if(sonota>0)     add({drKamoku:'支払手数料',drTorihiki:SUI_TK,drAmt:sonota,    drTax:'課対仕入10%',drTaxAmt:Math.floor(sonota/11),   drBiko:`${month}月分月額基本料・認証料・送金手数料${shokihi>0?'・初期費用':''}`});
+  if(depositAmt>0) add({drKamoku:'預け金',    drTorihiki:SUI_TK,drAmt:depositAmt,drTax:'対象外',                                        drBiko:`${month}月デポジット`});
+  for(const[suiId,amt]of Object.entries(totals)){
+    if(!amt)continue;
+    const cfg=SUI_SITE_MAP[suiId];if(!cfg)continue;
+    const taxable=cfg.kamoku==='売上高';
+    add({crKamoku:cfg.kamoku,crTorihiki:cfg.torihiki,crBumon:cfg.bumon,crAmt:amt,crTax:taxable?'課税売上10%':'対象外',crTaxAmt:taxable?Math.floor(amt/11):0,crBiko:`${month}月${cfg.siteName}　売上`});
+  }
+  if(depositHenkan>0) add({crKamoku:'預け金',crTorihiki:SUI_TK,crAmt:depositHenkan,crTax:'対象外',crBiko:`デポジット戻り金`});
+  let drSum=0,crSum=0;
+  for(const r of rows){if(r[15])drSum+=parseInt(r[15]);if(r[29])crSum+=parseInt(r[29]);}
+  const unmapped={};
+  for(const[id,amt]of Object.entries(allTotals)){if(!SUI_SITE_MAP[id])unmapped[id]=amt;}
+  return{rows,dateStr,vno,drSum,crSum,unmapped,kurikoshi};
+}
+let _suiCsvStore={};
+async function suiProcessFiles(files){
+  _suiDebugTexts=[];
+  setProgress(0,'PDF読み込み中...');
+  document.getElementById('suiResultsArea').innerHTML='';
+  document.getElementById('suiErrorsArea').innerHTML='';
+  document.getElementById('suiDebugCard').hidden=true;
+  _suiCsvStore={};
+  const errors=[],parsed=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    setProgress(Math.round((i/files.length)*70),`${f.name} を解析中...`);
+    try{
+      const data=await suiParsePdf(f);
+      if(!data.company){errors.push(`${f.name}: 会社名を特定できませんでした`);continue;}
+      if(!data.year){errors.push(`${f.name}: 決済期間を取得できませんでした`);continue;}
+      if(data.company!==selectedCompany){errors.push(`スキップ (会社不一致): ${f.name} → ${SUI_LABELS[data.company]??data.company} のPDFです`);continue;}
+      parsed.push(data);
+    }catch(e){errors.push(`${f.name}: ${e.message}`);}
+  }
+  setProgress(80,'CSV生成中...');
+  for(const data of parsed){
+    const v=suiBuildVoucher(data);
+    const csv='﻿'+[CSV_HEADER,...v.rows].map(rowToCsv).join('\r\n');
+    const key=`${data.company}_${data.year}${String(data.month).padStart(2,'0')}`;
+    _suiCsvStore[key]={csv,...v,data};
+  }
+  setProgress(100,'完了');
+  document.getElementById('progressWrap').hidden=true;
+  document.getElementById('suiErrorsArea').innerHTML=errors.map(e=>`<div class="err-msg">✕ ${escHtml(e)}</div>`).join('');
+  if(parsed.length){
+    document.getElementById('suiResultsArea').innerHTML=parsed.map(data=>{
+      const key=`${data.company}_${data.year}${String(data.month).padStart(2,'0')}`;
+      const v=_suiCsvStore[key];
+      const bal=v.drSum===v.crSum;
+      const badge=bal?`<span class="badge badge-ok">貸借一致</span>`:`<span class="badge badge-ng">差額 ${Math.abs(v.drSum-v.crSum).toLocaleString()}円</span>`;
+      const warns=[];
+      if(Object.keys(v.unmapped).length)warns.push(`未マップ: ${Object.entries(v.unmapped).map(([id,a])=>`${id}=¥${a.toLocaleString()}`).join(', ')}`);
+      if(v.kurikoshi>0)warns.push(`繰越額 ¥${v.kurikoshi.toLocaleString()} (未処理)`);
+      const warnHtml=warns.map(w=>`<div class="warn-msg">⚠ ${escHtml(w)}</div>`).join('');
+      const fmtAmt=n=>n?`¥${n.toLocaleString()}`:'0';
+      const parsedVals=`<div style="font-size:10px;color:var(--muted);margin-top:6px">差引払:${fmtAmt(data.sashiHirai)} 決済手:${fmtAmt(data.tesryo)} 月額基:${fmtAmt(data.getsuki)} 認証料:${fmtAmt(data.ninshory)} 送金手:${fmtAmt(data.okuri)}${data.shokihi?' 初期費:'+fmtAmt(data.shokihi):''}${data.depositAmt?' Dep:'+fmtAmt(data.depositAmt):''}${data.depositHenkan?' Dep返:'+fmtAmt(data.depositHenkan):''}</div>`;
+      const siteRows=Object.entries(data.totals).map(([id,amt])=>{const cfg=SUI_SITE_MAP[id];if(!cfg)return'';const taxable=cfg.kamoku==='売上高';return`<div class="site-row"><span class="site-name">${escHtml(cfg.siteName)}</span><span class="site-amts">¥${amt.toLocaleString()}</span><span class="badge ${taxable?'badge-ok':''}" style="${!taxable?'background:#fef3c7;color:var(--orange)':''}">${cfg.kamoku}</span></div>`;}).join('');
+      const preview=v.csv.split('\r\n').slice(0,4).join('\n');
+      return`<div class="upc-card"><div class="result-header"><h3>${escHtml(SUI_LABELS[selectedCompany]??selectedCompany)} ${data.year}年${data.month}月</h3>${badge}<span class="result-meta">${v.dateStr}</span><button class="btn-dl" onclick="suiDownload('${key}')">CSVダウンロード</button></div>${warnHtml}${parsedVals}<div class="site-rows">${siteRows}</div><div class="preview">${escHtml(preview)}</div></div>`;
+    }).join('');
+    suiRenderDebug();
+  }
+}
+function suiRenderDebug(){
+  document.getElementById('suiDebugCard').hidden=false;
+  document.getElementById('suiDebugBody').innerHTML=_suiDebugTexts.map(({fileName,pages})=>`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:700;padding:6px 0">${escHtml(fileName)}（${pages.length}ページ）</summary>${pages.map((txt,i)=>`<div style="margin-top:8px"><div style="font-size:.75rem;color:var(--muted);margin-bottom:4px">ページ ${i+1}</div><textarea readonly style="width:100%;height:160px;font-family:var(--mono);font-size:.7rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:8px;color:var(--fg);resize:vertical">${escHtml(txt)}</textarea></div>`).join('')}</details>`).join('');
+}
+function suiDownload(key){
+  const{csv,data}=_suiCsvStore[key];
+  const label=(SUI_LABELS[data.company]||data.company).replace('株式会社','');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`SUI_${label}_${data.year}${String(data.month).padStart(2,'0')}.csv`;
+  a.click();
+}
+
+// ═══ 共通 UI ════════════════════════════════════════
+let selectedSystem=null, selectedCompany=null, selectedFiles=[];
+
+function updateConvertBtn(){
+  document.getElementById('convertBtn').disabled=!selectedSystem||!selectedCompany||!selectedFiles.length;
+}
+function setProgress(pct,msg){
+  document.getElementById('progressWrap').hidden=false;
+  document.getElementById('progressBar').style.width=pct+'%';
+  document.getElementById('progressMsg').textContent=msg;
+}
+function showErrors(errs){
+  document.getElementById('errorList').innerHTML=errs.map(e=>`<div class="error-item">${escHtml(e)}</div>`).join('');
+}
+function updateFileList(files){
+  selectedFiles=[...files];
+  const el=document.getElementById('fileList');
+  if(!files.length){el.innerHTML='';updateConvertBtn();return;}
+  if(selectedSystem==='robopay'){
+    el.innerHTML=files.map(f=>{
+      const site=stemToSite(f.name.replace(/\.pdf$/i,''));
+      const cfg=SITE_CONFIG[site];
+      const rpKey=RP_COMPANY_MAP[selectedCompany];
+      const ok=!!cfg&&(!rpKey||cfg.company===rpKey);
+      return`<div class="file-chip ${ok?'ok':'err'}"><div class="dot"></div><span>${escHtml(f.name)}</span></div>`;
+    }).join('');
+  } else {
+    el.innerHTML=files.map(f=>`<div class="file-chip ${selectedCompany?'ok':'err'}"><div class="dot"></div><span>${escHtml(f.name)}</span></div>`).join('');
+  }
+  updateConvertBtn();
+}
+function clearAll(){
+  selectedSystem=null;
+  selectedCompany=null;
+  selectedFiles=[];
+  document.querySelectorAll('.sys-btn,.company-btn').forEach(b=>b.classList.remove('selected'));
+  document.getElementById('fileInput').value='';
+  document.getElementById('fileList').innerHTML='';
+  document.getElementById('progressWrap').hidden=true;
+  document.getElementById('errorList').innerHTML='';
+  document.getElementById('rpResultsCard').hidden=true;
+  document.getElementById('rpDebugCard').hidden=true;
+  document.getElementById('debugBody').innerHTML='';
+  document.getElementById('upcResultsArea').innerHTML='';
+  document.getElementById('upcErrorsArea').innerHTML='';
+  document.getElementById('suiResultsArea').innerHTML='';
+  document.getElementById('suiErrorsArea').innerHTML='';
+  document.getElementById('suiDebugCard').hidden=true;
+  updateConvertBtn();
+}
+
+document.getElementById('sysBtns').addEventListener('click',e=>{
+  const btn=e.target.closest('.sys-btn');if(!btn)return;
+  document.querySelectorAll('.sys-btn').forEach(b=>b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedSystem=btn.dataset.sys;
+  updateFileList(selectedFiles);
+  updateConvertBtn();
+});
+document.getElementById('companyBtns').addEventListener('click',e=>{
+  const btn=e.target.closest('.company-btn');if(!btn)return;
+  document.querySelectorAll('.company-btn').forEach(b=>b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedCompany=btn.dataset.company;
+  updateFileList(selectedFiles);
+  updateConvertBtn();
+});
+
+const dropZone=document.getElementById('dropZone');
+const fileInput=document.getElementById('fileInput');
+fileInput.addEventListener('change',e=>updateFileList([...e.target.files]));
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('drag-over');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('drag-over');updateFileList([...e.dataTransfer.files].filter(f=>f.type==='application/pdf'));});
+
+document.getElementById('convertBtn').addEventListener('click',async()=>{
+  const btn=document.getElementById('convertBtn');
+  btn.disabled=true;
+  document.getElementById('rpResultsCard').hidden=true;
+  document.getElementById('rpDebugCard').hidden=true;
+  try{
+    if(selectedSystem==='robopay') await rpProcessFiles(selectedFiles);
+    else if(selectedSystem==='sui') await suiProcessFiles(selectedFiles);
+    else await upcProcessFiles(selectedFiles);
+  }catch(e){showErrors([`予期しないエラー: ${e.message}`]);document.getElementById('progressWrap').hidden=true;}
+  btn.disabled=false;
+  updateConvertBtn();
+});
+document.getElementById('clearBtn').addEventListener('click',clearAll);
+</script>
+</body>
+</html>
